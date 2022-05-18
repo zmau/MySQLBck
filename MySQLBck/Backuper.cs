@@ -1,13 +1,5 @@
 ﻿using MySql.Data.MySqlClient;
-using MySqlX.XDevAPI;
-using Org.BouncyCastle.Utilities.Zlib;
-using System;
-using System.Collections.Generic;
-using System.Data.SqlClient;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace com.arnet.MySQLBck
 {
@@ -49,31 +41,11 @@ namespace com.arnet.MySQLBck
         {
             try
             {
-                Process pProcess = new Process();
-                pProcess.StartInfo.FileName = $"{DUMPER_PATH}";
-                pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --databases db1";
-                Console.WriteLine($"{pProcess.StartInfo.FileName}{pProcess.StartInfo.Arguments}");
-
+                Process pProcess = newDumperProcess();
                 var outputStream = new StreamWriter(DUMP_PATH);
-                //pProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                pProcess.OutputDataReceived += new DataReceivedEventHandler((sender, e) =>
-                {
-                    if (!String.IsNullOrEmpty(e.Data))
-                    {
-                        outputStream.WriteLine(e.Data);
-                    }
-                }); 
-                pProcess.StartInfo.UseShellExecute = false;
-                pProcess.StartInfo.CreateNoWindow = true;
-
-                pProcess.StartInfo.RedirectStandardOutput = true;
-
-                //Optional
-                //pProcess.StartInfo.WorkingDirectory = strWorkingDirectory;
-
+                pProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
                 pProcess.Start();
-
-                Console.ReadLine();
+                pProcess.BeginOutputReadLine();
                 pProcess.WaitForExit();
                 outputStream.Dispose();
             }
@@ -85,5 +57,21 @@ namespace com.arnet.MySQLBck
                 Console.WriteLine(e.StackTrace);
             }
         }
+
+        private Process newDumperProcess()
+        {
+            Process pProcess = new Process();
+            pProcess.StartInfo.FileName = $"{DUMPER_PATH}";
+            pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --databases db1";
+
+            pProcess.StartInfo.UseShellExecute = false;
+            pProcess.StartInfo.CreateNoWindow = true;
+            pProcess.StartInfo.RedirectStandardOutput = true;
+
+            //Optional
+            //pProcess.StartInfo.WorkingDirectory = strWorkingDirectory;
+            return pProcess;
+        }
+
     }
 }

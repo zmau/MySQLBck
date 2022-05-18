@@ -3,4 +3,3 @@ using com.arnet.MySQLBck;
 
 Backuper bck = new Backuper();
 bck.dumpDatabases();
-//bck.insert("t3");
