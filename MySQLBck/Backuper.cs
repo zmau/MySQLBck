@@ -13,8 +13,8 @@ namespace com.arnet.MySQLBck
 {
     internal class Backuper
     {
-        public static string DUMPER_PATH = "C:\\dev\\arnet\\mysql\\bin\\mysqldump";
-        public static string DUMP_PATH = "C:\\dev\\arnet\\dump\\dump.sql";
+        public static readonly string DUMPER_PATH = "C:\\dev\\arnet\\mysql\\bin\\mysqldump";
+        public static readonly string DUMP_PATH = "C:\\dev\\arnet\\dump\\dump.sql";
         private MySqlConnection Connection { get; set; }
 
         public Backuper()
@@ -49,66 +49,37 @@ namespace com.arnet.MySQLBck
         {
             try
             {
-                System.Diagnostics.Process pProcess = new System.Diagnostics.Process();
+                Process pProcess = new Process();
+                pProcess.StartInfo.FileName = $"{DUMPER_PATH}";
+                pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --databases db1";
+                Console.WriteLine($"{pProcess.StartInfo.FileName}{pProcess.StartInfo.Arguments}");
 
-                /*   pProcess.StartInfo.FileName = $"{DUMPER_PATH}";
-                   //pProcess.StartInfo.FileName = "cmd.exe";
+                var outputStream = new StreamWriter(DUMP_PATH);
+                //pProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
+                pProcess.OutputDataReceived += new DataReceivedEventHandler((sender, e) =>
+                {
+                    if (!String.IsNullOrEmpty(e.Data))
+                    {
+                        outputStream.WriteLine(e.Data);
+                    }
+                }); 
+                pProcess.StartInfo.UseShellExecute = false;
+                pProcess.StartInfo.CreateNoWindow = true;
 
-                   //strCommandParameters are parameters to pass to program
-                   pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --databases db1";
-   //                pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --all-databases > {DUMP_LOCATION}";
-                   Console.WriteLine($"{pProcess.StartInfo.FileName}{pProcess.StartInfo.Arguments}");
+                pProcess.StartInfo.RedirectStandardOutput = true;
 
-                   var outputStream = new StreamWriter(DUMP_PATH);
-                   //pProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                   pProcess.OutputDataReceived += new DataReceivedEventHandler((sender, e) =>
-                   {
-                       if (!String.IsNullOrEmpty(e.Data))
-                       {
-                           outputStream.WriteLine(e.Data);
-                       }
-                   }); 
-                   pProcess.StartInfo.UseShellExecute = false;
-                   pProcess.StartInfo.CreateNoWindow = true;
+                //Optional
+                //pProcess.StartInfo.WorkingDirectory = strWorkingDirectory;
 
-                   //Set output of program to be written to process output stream
-                   pProcess.StartInfo.RedirectStandardOutput = true;
+                pProcess.Start();
 
-                   //Optional
-                   //pProcess.StartInfo.WorkingDirectory = strWorkingDirectory;
-
-                   //Start the process
-                   pProcess.Start();
-
-     //              string strOutput = pProcess.StandardOutput.ReadToEnd();
-   //                Console.WriteLine(strOutput);
-
-                   Console.ReadLine();
-                   //Wait for process to finish
-                   pProcess.WaitForExit();*/
-                /* Process cmd = new Process();
-                 cmd.StartInfo.FileName = "cmd.exe";
-                 cmd.StartInfo.Arguments = strCmdText;
-                 cmd.StartInfo.RedirectStandardInput = true;
-                 cmd.StartInfo.RedirectStandardOutput = true;
-                 cmd.StartInfo.CreateNoWindow = true;
-                 cmd.StartInfo.UseShellExecute = false;
-                 cmd.Start();
-                 string strOutput = cmd.StandardOutput.ReadToEnd();
-
-                 cmd.StandardInput.WriteLine("echo Oscar");
-                 cmd.StandardInput.Flush();
-                 cmd.StandardInput.Close();
-                 cmd.WaitForExit();
-                 Console.WriteLine(cmd.StandardOutput.ReadToEnd());*/
-
-
-                var strCmdText = $"{pProcess.StartInfo.FileName}{pProcess.StartInfo.Arguments}";
-                Console.WriteLine(strCmdText);
-                System.Diagnostics.Process.Start("CMD.exe", strCmdText);
+                Console.ReadLine();
+                pProcess.WaitForExit();
+                outputStream.Dispose();
             }
             catch(Exception e)
             {
+                Console.WriteLine("Dumping failed with exception :");
                 Console.WriteLine(e.GetType());
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
