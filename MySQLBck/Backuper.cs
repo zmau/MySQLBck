@@ -1,17 +1,40 @@
 ﻿using MySql.Data.MySqlClient;
+using System.Collections.Specialized;
+using System.Configuration;
 using System.Diagnostics;
+using System.Text;
 
 namespace com.arnet.MySQLBck
 {
     internal class Backuper
     {
-        public static readonly string DUMPER_PATH = "C:\\dev\\arnet\\mysql\\bin\\mysqldump";
-        public static readonly string DUMP_PATH = "C:\\dev\\arnet\\dump\\dump.sql";
+        public static readonly string DEFAULT_SERVER_NAME = "localhost";
+        public static readonly string DEFAULT_USER_NAME = "root";
+        public static readonly string DEFAULT_PASSWORD = "root";
+        public static readonly string[] COMMON_CREDENTIALS = { "demo/demo", "oper/online", "oper/lipa" };
+
+        public static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
+
         private MySqlConnection Connection { get; set; }
+        private readonly NameValueCollection _appSettings;
+        private readonly string _serverName;
+        private readonly string _userName;
+        private readonly string _password;
+
 
         public Backuper()
         {
+            //TODO change parameters
             Connection = getConnection("localhost", "root", "root");
+            _appSettings = ConfigurationManager.GetSection(sectionName: "appSettings") as NameValueCollection;
+            if(_appSettings == null)
+            {
+                Console.WriteLine("Missing appSettings section in App.config file.");
+                Environment.Exit(1);
+            }
+            _serverName = _appSettings.Get("server_name") ?? DEFAULT_SERVER_NAME;
+            _userName = _appSettings.Get("user_name") ?? DEFAULT_USER_NAME;
+            _password = _appSettings.Get("password") ?? DEFAULT_PASSWORD;
         }
         public MySqlConnection getConnection(string serverName, string userName, string password)
         {
@@ -21,15 +44,6 @@ namespace com.arnet.MySQLBck
             return connection;
         }
 
-        public void query()
-        {
-            string query = "use db1; SELECT count(*) cnt FROM tasks";
-            var cmd = new MySqlCommand(query, Connection);
-            var reader = cmd.ExecuteReader();
-            reader.Read();
-            int count = reader.GetInt32("cnt");
-            Console.WriteLine(count);
-        }
         public void insert(string text)
         {
             string query = $"use db1; insert into log (text) values ('{text}')";
@@ -41,12 +55,18 @@ namespace com.arnet.MySQLBck
         {
             try
             {
-                Process pProcess = newDumperProcess();
-                var outputStream = new StreamWriter(DUMP_PATH);
-                pProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                pProcess.Start();
-                pProcess.BeginOutputReadLine();
-                pProcess.WaitForExit();
+                Process dumperProcess = newDumperProcess();
+                var dumpPath = _appSettings.Get("dump_path");
+                if(dumpPath == null)
+                {
+                    Console.WriteLine("Backup destination folder not defined!");
+                    Environment.Exit(2);
+                }
+                var outputStream = new StreamWriter(dumpPath);
+                dumperProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
+                dumperProcess.Start();
+                dumperProcess.BeginOutputReadLine();
+                dumperProcess.WaitForExit();
                 outputStream.Dispose();
             }
             catch(Exception e)
@@ -60,17 +80,36 @@ namespace com.arnet.MySQLBck
 
         private Process newDumperProcess()
         {
-            Process pProcess = new Process();
-            pProcess.StartInfo.FileName = $"{DUMPER_PATH}";
-            pProcess.StartInfo.Arguments = $" -hlocalhost -uroot -proot --databases db1";
+            Process process = new Process();
+            var dumperPath = _appSettings.Get("dumper_path");
+            if (dumperPath == null)
+            {
+                Console.WriteLine("path to mysqldump.exe not defined!");
+                Environment.Exit(2);
+            }
+            process.StartInfo.FileName = dumperPath;
+            var databasesSpaceSeparatedList = getDatabasesSpaceSeparatedList();
+            process.StartInfo.Arguments = $" -h{_serverName} -u{_userName} -p{_password} --databases{databasesSpaceSeparatedList}";
 
-            pProcess.StartInfo.UseShellExecute = false;
-            pProcess.StartInfo.CreateNoWindow = true;
-            pProcess.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.CreateNoWindow = true;
+            process.StartInfo.RedirectStandardOutput = true;
 
-            //Optional
-            //pProcess.StartInfo.WorkingDirectory = strWorkingDirectory;
-            return pProcess;
+            return process;
+        }
+
+        private string getDatabasesSpaceSeparatedList()
+        {
+            string query = "show databases";
+            var cmd = new MySqlCommand(query, Connection);
+            var reader = cmd.ExecuteReader();
+            StringBuilder list = new StringBuilder();
+            while (reader.Read())
+            {
+                if(!SYS_DATABASES.Contains(reader.GetString("database")))
+                    list.Append(" " + reader.GetString("database"));
+            }
+            return list.ToString();
         }
 
     }
