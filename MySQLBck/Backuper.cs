@@ -1,4 +1,5 @@
 ﻿using MySql.Data.MySqlClient;
+using System;
 using System.Collections.Specialized;
 using System.Configuration;
 using System.Diagnostics;
@@ -9,46 +10,66 @@ namespace com.arnet.MySQLBck
     internal class Backuper
     {
         public static readonly string DEFAULT_SERVER_NAME = "localhost";
-        public static readonly string DEFAULT_USER_NAME = "root";
-        public static readonly string DEFAULT_PASSWORD = "root";
+        public static readonly string DEFAULT_PORT = "53306";
+        
         public static readonly string[] COMMON_CREDENTIALS = { "demo/demo", "oper/online", "oper/lipa" };
 
         public static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
 
         private MySqlConnection Connection { get; set; }
-        private readonly NameValueCollection _appSettings;
+        private NameValueCollection _appSettings;
         private readonly string _serverName;
-        private readonly string _userName;
-        private readonly string _password;
-
+        private readonly string _port;
+        private string? _userName;
+        private string? _password;
+        public bool FoundCorrectCredentials { get { return Connection is not null; } }
 
         public Backuper()
         {
-            //TODO change parameters
-            Connection = getConnection("localhost", "root", "root");
-            _appSettings = ConfigurationManager.GetSection(sectionName: "appSettings") as NameValueCollection;
-            if(_appSettings == null)
+            object appSettings = ConfigurationManager.GetSection(sectionName: "appSettings");
+            if(appSettings == null)
             {
-                Console.WriteLine("Missing appSettings section in App.config file.");
+                Console.WriteLine("Greška : nema sekcije appSettings u App.config fajlu.");
+                Console.ReadLine();
                 Environment.Exit(1);
             }
+            _appSettings = appSettings as NameValueCollection;
             _serverName = _appSettings.Get("server_name") ?? DEFAULT_SERVER_NAME;
-            _userName = _appSettings.Get("user_name") ?? DEFAULT_USER_NAME;
-            _password = _appSettings.Get("password") ?? DEFAULT_PASSWORD;
+            _port = _appSettings.Get("port") ?? DEFAULT_PORT;
+            string? userNameFromSettings = _appSettings.Get("user_name");
+            string? passwordFromSettings = _appSettings.Get("password");
+            if (userNameFromSettings is null)
+            {
+                Console.WriteLine("Upozorenje : nema parametra userName u App.config fajlu. Svakako pokušavam da iskoristim i difoltne.");
+            }
+            if (passwordFromSettings is null)
+            {
+                Console.WriteLine("Upozorenje : nema parametra password u App.config fajlu. Svakako pokušavam da iskoristim i difoltne.");
+            }
+            if (userNameFromSettings is not null && passwordFromSettings is not null)
+            {
+                try
+                {
+                    Connection = getConnection(_serverName, _port, userNameFromSettings, passwordFromSettings);
+                    _userName = userNameFromSettings;
+                    _password = passwordFromSettings;
+                }
+                catch (Exception)
+                {
+                    // Nothing, just could not connect with those credentials
+                    Console.WriteLine("Neuspešna konekcija");
+                }
+            }
+            if (!FoundCorrectCredentials)
+                checkCommonCredentials();
         }
-        public MySqlConnection getConnection(string serverName, string userName, string password)
+        private MySqlConnection getConnection(string serverName, string port, string userName, string password)
         {
-            string connstring = string.Format("Server={0}; UID={1}; password={2}", serverName, userName, password);
+            string connstring = string.Format("Server={0}; port={1}; UID={2}; password={3}", serverName, port, userName, password);
             var connection = new MySqlConnection(connstring);
+            Console.WriteLine("kačim se na " + connstring) ;
             connection.Open();
             return connection;
-        }
-
-        public void insert(string text)
-        {
-            string query = $"use db1; insert into log (text) values ('{text}')";
-            var cmd = new MySqlCommand(query, Connection);
-            cmd.ExecuteNonQuery();
         }
 
         public void dumpDatabases()
@@ -59,22 +80,46 @@ namespace com.arnet.MySQLBck
                 var dumpPath = _appSettings.Get("dump_path");
                 if(dumpPath == null)
                 {
-                    Console.WriteLine("Backup destination folder not defined!");
+                    Console.WriteLine("Greška : bekap folder nije definisan. Ništa od dampovanja.");
+                    Console.ReadLine();
                     Environment.Exit(2);
                 }
                 var outputStream = new StreamWriter(dumpPath);
                 dumperProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
+                Console.WriteLine($"okidam {dumperProcess.StartInfo.FileName}{dumperProcess.StartInfo.Arguments}");
                 dumperProcess.Start();
                 dumperProcess.BeginOutputReadLine();
                 dumperProcess.WaitForExit();
                 outputStream.Dispose();
+                Console.WriteLine($"Potraži rezultat u {dumpPath}");
             }
             catch(Exception e)
             {
-                Console.WriteLine("Dumping failed with exception :");
+                Console.WriteLine("Greška. Dampovanje puklo uz eksepšn :");
                 Console.WriteLine(e.GetType());
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
+            }
+        }
+
+        private void checkCommonCredentials()
+        {
+            foreach (string credentialsAsString in COMMON_CREDENTIALS)
+            {
+                string[] creds = credentialsAsString.Split("/");
+                string userName = creds[0];
+                string password = creds[1];
+                try
+                {
+                    Connection = getConnection(_serverName, _port, userName, password);
+                    _userName = userName;
+                    _password = password;
+                }
+                catch (Exception)
+                {
+                    // Nothing, just could not connect with those credentials
+                    Console.WriteLine("Neuspešna konekcija");
+                }
             }
         }
 
@@ -84,13 +129,13 @@ namespace com.arnet.MySQLBck
             var dumperPath = _appSettings.Get("dumper_path");
             if (dumperPath == null)
             {
-                Console.WriteLine("path to mysqldump.exe not defined!");
+                Console.WriteLine("Nije definisana putanja do fajla mysqldump.exe !");
+                Console.ReadLine();
                 Environment.Exit(2);
             }
             process.StartInfo.FileName = dumperPath;
             var databasesSpaceSeparatedList = getDatabasesSpaceSeparatedList();
-            process.StartInfo.Arguments = $" -h{_serverName} -u{_userName} -p{_password} --databases{databasesSpaceSeparatedList}";
-
+            process.StartInfo.Arguments = $" -h{_serverName} -P{_port} -u{_userName} -p{_password} --databases{databasesSpaceSeparatedList}";
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
             process.StartInfo.RedirectStandardOutput = true;
