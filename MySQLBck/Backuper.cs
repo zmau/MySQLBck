@@ -16,12 +16,14 @@ namespace com.arnet.MySQLBck
 
         public static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
 
-        private MySqlConnection Connection { get; set; }
+        private MySqlConnection? Connection { get; set; }
         private NameValueCollection _appSettings;
+
         private readonly string _serverName;
         private readonly string _port;
         private string? _userName;
         private string? _password;
+        private string? _destinationFilePath;
         public bool FoundCorrectCredentials { get { return Connection is not null; } }
 
         public Backuper()
@@ -48,77 +50,40 @@ namespace com.arnet.MySQLBck
             }
             if (userNameFromSettings is not null && passwordFromSettings is not null)
             {
-                try
-                {
-                    Connection = getConnection(_serverName, _port, userNameFromSettings, passwordFromSettings);
-                    _userName = userNameFromSettings;
-                    _password = passwordFromSettings;
-                }
-                catch (Exception)
-                {
-                    // Nothing, just could not connect with those credentials
-                    Console.WriteLine("Neuspešna konekcija");
-                }
+                Connection = getConnection(_serverName, _port, userNameFromSettings, passwordFromSettings);
             }
             if (!FoundCorrectCredentials)
                 checkCommonCredentials();
         }
-        private MySqlConnection getConnection(string serverName, string port, string userName, string password)
-        {
-            string connstring = string.Format("Server={0}; port={1}; UID={2}; password={3}", serverName, port, userName, password);
-            var connection = new MySqlConnection(connstring);
-            Console.WriteLine("kačim se na " + connstring) ;
-            connection.Open();
-            return connection;
-        }
-
-        public void dumpDatabases()
+        private MySqlConnection? getConnection(string serverName, string port, string userName, string password)
         {
             try
             {
-                Process dumperProcess = newDumperProcess();
-                var dumpPath = _appSettings.Get("dump_path");
-                if(dumpPath == null)
-                {
-                    Console.WriteLine("Greška : bekap folder nije definisan. Ništa od dampovanja.");
-                    Console.ReadLine();
-                    Environment.Exit(2);
-                }
-                var outputStream = new StreamWriter(dumpPath);
-                dumperProcess.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                Console.WriteLine($"okidam {dumperProcess.StartInfo.FileName}{dumperProcess.StartInfo.Arguments}");
-                dumperProcess.Start();
-                dumperProcess.BeginOutputReadLine();
-                dumperProcess.WaitForExit();
-                outputStream.Dispose();
-                Console.WriteLine($"Potraži rezultat u {dumpPath}");
+                string connstring = string.Format("Server={0}; port={1}; UID={2}; password={3}", serverName, port, userName, password);
+                var connection = new MySqlConnection(connstring);
+                Console.WriteLine("kačim se na " + connstring);
+                connection.Open();
+                _userName = userName;
+                _password = password;
+                Console.WriteLine("Uspeo da se konektujem sa ovim parametrima!");
+                return connection;
             }
-            catch(Exception e)
+            catch (Exception)
             {
-                Console.WriteLine("Greška. Dampovanje puklo uz eksepšn :");
-                Console.WriteLine(e.GetType());
-                Console.WriteLine(e.Message);
-                Console.WriteLine(e.StackTrace);
+                Console.WriteLine("Neuspešna konekcija");
+                return null;
             }
+
         }
 
         private void checkCommonCredentials()
         {
             foreach (string credentialsAsString in COMMON_CREDENTIALS)
             {
-                string[] creds = credentialsAsString.Split("/");
-                string userName = creds[0];
-                string password = creds[1];
-                try
+                if (!FoundCorrectCredentials)
                 {
-                    Connection = getConnection(_serverName, _port, userName, password);
-                    _userName = userName;
-                    _password = password;
-                }
-                catch (Exception)
-                {
-                    // Nothing, just could not connect with those credentials
-                    Console.WriteLine("Neuspešna konekcija");
+                    string[] creds = credentialsAsString.Split("/");
+                    Connection = getConnection(_serverName, _port, creds[0], creds[1]);
                 }
             }
         }
@@ -134,8 +99,6 @@ namespace com.arnet.MySQLBck
                 Environment.Exit(2);
             }
             process.StartInfo.FileName = dumperPath;
-            var databasesSpaceSeparatedList = getDatabasesSpaceSeparatedList();
-            process.StartInfo.Arguments = $" -h{_serverName} -P{_port} -u{_userName} -p{_password} --databases{databasesSpaceSeparatedList}";
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
             process.StartInfo.RedirectStandardOutput = true;
@@ -143,19 +106,61 @@ namespace com.arnet.MySQLBck
             return process;
         }
 
-        private string getDatabasesSpaceSeparatedList()
+        private List<string> getDatabaseNames()
         {
             string query = "show databases";
             var cmd = new MySqlCommand(query, Connection);
             var reader = cmd.ExecuteReader();
-            StringBuilder list = new StringBuilder();
+            List<string> list = new List<string>();
             while (reader.Read())
             {
                 if(!SYS_DATABASES.Contains(reader.GetString("database")))
-                    list.Append(" " + reader.GetString("database"));
+                    list.Add(reader.GetString("database"));
             }
-            return list.ToString();
+            return list;
         }
+
+        public void dumpDatabases()
+        {
+            try
+            {
+                var dumpPath = _appSettings.Get("dump_path");
+                if (dumpPath == null)
+                {
+                    Console.WriteLine("Greška : bekap folder nije definisan. Ništa od dampovanja.");
+                    Console.ReadLine();
+                    Environment.Exit(2);
+                }
+                var databaseNamesList = getDatabaseNames();
+                foreach (var databaseName in databaseNamesList)
+                {
+                    var dumperForCurrentDatabase = newDumperProcess();
+                    dumperForCurrentDatabase.StartInfo.Arguments = $" -h{_serverName} -P{_port} -u{_userName} -p{_password} --databases {databaseName}";
+                    _destinationFilePath = Path.Combine(dumpPath, $"dump-{databaseName}.sql");
+                    var outputStream = new StreamWriter(_destinationFilePath);
+                    dumperForCurrentDatabase.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
+                    Console.WriteLine($"okidam {GetCommandLineString(dumperForCurrentDatabase.StartInfo)}");
+                    dumperForCurrentDatabase.Start();
+                    dumperForCurrentDatabase.BeginOutputReadLine();
+                    dumperForCurrentDatabase.WaitForExit();
+                    outputStream.Dispose();
+                    Console.WriteLine($"Potraži rezultat u {_destinationFilePath}");
+                }
+                Console.WriteLine("Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Greška. Dampovanje puklo uz eksepšn :");
+                Console.WriteLine(e.GetType());
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
+            }
+        }
+        private string GetCommandLineString(ProcessStartInfo StartInfo)
+        {
+            return $"{StartInfo.FileName}{StartInfo.Arguments} > {_destinationFilePath}";
+        }
+
 
     }
 }
