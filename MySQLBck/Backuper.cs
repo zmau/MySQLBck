@@ -9,109 +9,98 @@ namespace com.arnet.MySQLBck
 {
     internal class Backuper
     {
-        public static readonly string DEFAULT_SERVER_NAME = "localhost";
-        public static readonly string DEFAULT_PORT = "53306";
-        
-        public static readonly string[] COMMON_CREDENTIALS = { "demo/demo", "oper/online", "oper/lipa" };
+        public static readonly string DEFAULT_USER_NAME = "oper";
+        public static readonly string DEFAULT_PASSWORD = "online";
 
-        public static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
+        private static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
+        private static readonly string SHOW_DATABASES = "show databases";
 
-        private MySqlConnection? Connection { get; set; }
         private NameValueCollection _appSettings;
-
-        private readonly string _serverName;
-        private readonly string _port;
+        private List<ClientInfo> _clients;
+        
+        private string? _dumperPath;
+        private string? _dumpRootPath;
         private string? _userName;
         private string? _password;
-        private string? _destinationFilePath;
-        public bool FoundCorrectCredentials { get { return Connection is not null; } }
 
         public Backuper()
         {
-            object appSettings = ConfigurationManager.GetSection(sectionName: "appSettings");
-            if(appSettings == null)
+            _appSettings = ConfigurationManager.GetSection(sectionName: "appSettings") as NameValueCollection;
+            if(_appSettings == null)
             {
-                Console.WriteLine("Greška : nema sekcije appSettings u App.config fajlu.");
+                Console.WriteLine("Greška : nema sekcije appSettings u App.config fajlu. Ništa od dampovanja.");
                 Console.ReadLine();
                 Environment.Exit(1);
             }
-            _appSettings = appSettings as NameValueCollection;
-            _serverName = _appSettings.Get("server_name") ?? DEFAULT_SERVER_NAME;
-            _port = _appSettings.Get("port") ?? DEFAULT_PORT;
-            string? userNameFromSettings = _appSettings.Get("user_name");
-            string? passwordFromSettings = _appSettings.Get("password");
-            if (userNameFromSettings is null)
-            {
-                Console.WriteLine("Upozorenje : nema parametra userName u App.config fajlu. Svakako pokušavam da iskoristim i difoltne.");
-            }
-            if (passwordFromSettings is null)
-            {
-                Console.WriteLine("Upozorenje : nema parametra password u App.config fajlu. Svakako pokušavam da iskoristim i difoltne.");
-            }
-            if (userNameFromSettings is not null && passwordFromSettings is not null)
-            {
-                Connection = getConnection(_serverName, _port, userNameFromSettings, passwordFromSettings);
-            }
-            if (!FoundCorrectCredentials)
-                checkCommonCredentials();
-        }
-        private MySqlConnection? getConnection(string serverName, string port, string userName, string password)
-        {
-            try
-            {
-                string connstring = string.Format("Server={0}; port={1}; UID={2}; password={3}", serverName, port, userName, password);
-                var connection = new MySqlConnection(connstring);
-                Console.WriteLine("kačim se na " + connstring);
-                connection.Open();
-                _userName = userName;
-                _password = password;
-                Console.WriteLine("Uspeo da se konektujem sa ovim parametrima!");
-                return connection;
-            }
-            catch (Exception)
-            {
-                Console.WriteLine("Neuspešna konekcija");
-                return null;
-            }
 
-        }
+            _userName = _appSettings.Get("user_name") ?? DEFAULT_USER_NAME;
+            _password = _appSettings.Get("password") ?? DEFAULT_PASSWORD;
 
-        private void checkCommonCredentials()
-        {
-            foreach (string credentialsAsString in COMMON_CREDENTIALS)
+            _dumperPath = _appSettings.Get("dumper_path");
+            if (_dumperPath == null)
             {
-                if (!FoundCorrectCredentials)
-                {
-                    string[] creds = credentialsAsString.Split("/");
-                    Connection = getConnection(_serverName, _port, creds[0], creds[1]);
-                }
-            }
-        }
-
-        private Process newDumperProcess()
-        {
-            Process process = new Process();
-            var dumperPath = _appSettings.Get("dumper_path");
-            if (dumperPath == null)
-            {
-                Console.WriteLine("Nije definisana putanja do fajla mysqldump.exe !");
+                Console.WriteLine("Greška. Nije definisana putanja do fajla mysqldump.exe !");
                 Console.ReadLine();
                 Environment.Exit(2);
             }
-            process.StartInfo.FileName = dumperPath;
+            _dumpRootPath = _appSettings.Get("dump_path");
+            if (_dumpRootPath == null)
+            {
+                Console.WriteLine("Greška : bekap folder nije definisan. Ništa od dampovanja.");
+                Console.ReadLine();
+                Environment.Exit(3);
+            }
+            readClientInfo();
+        }
+
+        private void readClientInfo()
+        {
+            string? servers = _appSettings.Get("server_names");
+            if (servers is null)
+            {
+                Console.WriteLine("server_name nije definisan. Ništa od dampovanja.");
+                Console.ReadLine();
+                Environment.Exit(4);
+            }
+            string? subdirectories = _appSettings.Get("dump_path_subdirectories");
+            if (subdirectories is null)
+            {
+                Console.WriteLine("dump_path_subdirectories nisu definisani. Ništa od dampovanja.");
+                Console.ReadLine(); 
+                Environment.Exit(5);
+            }
+
+            _clients = new List<ClientInfo>();
+            List<string> serverList = servers.Split(", ").ToList();
+            List<string> subDirectoryList = subdirectories.Split(", ").ToList();
+            for(int i = 0; i < serverList.Count; i++)
+            {
+                var serverAndPort = serverList[i].Split(":");
+                ClientInfo clientInfo = new ClientInfo
+                {
+                    ServerIP = serverAndPort[0],
+                    Port = serverAndPort[1],
+                    DirectoryName = subDirectoryList[i],
+                };
+
+                _clients.Add(clientInfo);
+            }
+        }
+        private Process newDumperProcess()
+        {
+            Process process = new Process();
+            process.StartInfo.FileName = _dumperPath;
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
             process.StartInfo.RedirectStandardOutput = true;
-
             return process;
         }
 
-        private List<string> getDatabaseNames()
+        private List<string> getDatabaseNames(MySqlConnection mySqlInstanceConnection)
         {
-            string query = "show databases";
-            var cmd = new MySqlCommand(query, Connection);
+            var cmd = new MySqlCommand(SHOW_DATABASES, mySqlInstanceConnection);
             var reader = cmd.ExecuteReader();
-            List<string> list = new List<string>();
+            List<string> list = new();
             while (reader.Read())
             {
                 if(!SYS_DATABASES.Contains(reader.GetString("database")))
@@ -120,47 +109,52 @@ namespace com.arnet.MySQLBck
             return list;
         }
 
-        public void dumpDatabases()
+        public void dumpAll()
+        {
+            foreach (var clientInfo in _clients)
+            {
+                Console.WriteLine($"Bekapujem server {clientInfo.ServerAndPort} u direktorijum {clientInfo.DirectoryName}");
+                dumpDatabases(clientInfo);
+            }
+            Console.WriteLine("Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
+        }
+
+        private void dumpDatabases(ClientInfo clientInfo)
         {
             try
             {
-                var dumpPath = _appSettings.Get("dump_path");
-                if (dumpPath == null)
+                string dumpPathForClient = Path.Combine(_dumpRootPath, clientInfo.DirectoryName);
+                Directory.CreateDirectory(dumpPathForClient);
+                MySqlConnection clientConnection = clientInfo.getConnection(_userName, _password);
+                List<string> databaseNamesList = getDatabaseNames(clientConnection);
+                if (clientConnection is null)
                 {
-                    Console.WriteLine("Greška : bekap folder nije definisan. Ništa od dampovanja.");
-                    Console.ReadLine();
-                    Environment.Exit(2);
+                    Console.WriteLine("Neuspešna konekcija. Ništa od dampovanja za ovaj server.");
+                    return;
                 }
-                var databaseNamesList = getDatabaseNames();
                 foreach (var databaseName in databaseNamesList)
                 {
-                    var dumperForCurrentDatabase = newDumperProcess();
-                    dumperForCurrentDatabase.StartInfo.Arguments = $" -h{_serverName} -P{_port} -u{_userName} -p{_password} --databases {databaseName}";
-                    _destinationFilePath = Path.Combine(dumpPath, $"dump-{databaseName}.sql");
-                    var outputStream = new StreamWriter(_destinationFilePath);
+                    string now = DateTime.Now.ToString("dd.MM.yyyy HH:mm");
+                    Process dumperForCurrentDatabase = newDumperProcess();
+                    dumperForCurrentDatabase.StartInfo.Arguments = $"-h{clientInfo.ServerIP} -P{clientInfo.Port} -u{_userName} -p{_password} --databases {databaseName}";
+                    string destinationFilePath = Path.Combine(dumpPathForClient, $"dump-{databaseName} {now}.sql");
+                    var outputStream = new StreamWriter(destinationFilePath);
                     dumperForCurrentDatabase.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                    Console.WriteLine($"okidam {GetCommandLineString(dumperForCurrentDatabase.StartInfo)}");
+                    Console.WriteLine($"  > mysqldump {dumperForCurrentDatabase.StartInfo.Arguments} > {destinationFilePath}");
                     dumperForCurrentDatabase.Start();
                     dumperForCurrentDatabase.BeginOutputReadLine();
                     dumperForCurrentDatabase.WaitForExit();
                     outputStream.Dispose();
-                    Console.WriteLine($"Potraži rezultat u {_destinationFilePath}");
                 }
-                Console.WriteLine("Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
             }
             catch (Exception e)
             {
-                Console.WriteLine("Greška. Dampovanje puklo uz eksepšn :");
+                Console.WriteLine($"Greška. Dampovanje za server {clientInfo.ServerAndPort} puklo uz eksepšn :");
                 Console.WriteLine(e.GetType());
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
+                Console.WriteLine("Ovo mi sve pokaži da vidim o čemu se radi!");
             }
         }
-        private string GetCommandLineString(ProcessStartInfo StartInfo)
-        {
-            return $"{StartInfo.FileName}{StartInfo.Arguments} > {_destinationFilePath}";
-        }
-
-
     }
 }

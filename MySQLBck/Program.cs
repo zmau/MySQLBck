@@ -2,7 +2,5 @@
 using com.arnet.MySQLBck;
 
 Backuper bck = new Backuper();
-if (bck.FoundCorrectCredentials)
-    bck.dumpDatabases();
-else Console.WriteLine("Nisam uspeo da nađem parametre za kačenje na bazu. Ništa od bekapa.");
+bck.dumpAll();
 Console.ReadLine();
