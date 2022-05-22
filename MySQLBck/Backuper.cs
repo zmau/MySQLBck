@@ -14,6 +14,7 @@ namespace com.arnet.MySQLBck
 
         private static readonly string[] SYS_DATABASES = { "information_schema", "mysql", "performance_schema", "sys" };
         private static readonly string SHOW_DATABASES = "show databases";
+        private static readonly string PASSWORD_WARNING = "[Warning] Using a password on the command line interface can be insecure.";
 
         private NameValueCollection _appSettings;
         private List<ClientInfo> _clients;
@@ -23,6 +24,7 @@ namespace com.arnet.MySQLBck
         private string? _userName;
         private string? _password;
 
+        private bool _dumperReportedErrors = false;
         public Backuper()
         {
             _appSettings = ConfigurationManager.GetSection(sectionName: "appSettings") as NameValueCollection;
@@ -96,6 +98,18 @@ namespace com.arnet.MySQLBck
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
             process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = true;
+            process.ErrorDataReceived += (sender, args) => {
+                if (args is null || args.Data is null)
+                    return;
+                if (!args.Data.Contains(PASSWORD_WARNING))
+                {
+                    _dumperReportedErrors = true;
+                    if (args.Data.Contains("Warning"))
+                        Console.WriteLine($"      warning : {args.Data}");
+                    else Console.WriteLine($"      ERROR : {args.Data}");
+                }
+            };
             return process;
         }
 
@@ -115,12 +129,14 @@ namespace com.arnet.MySQLBck
         public void dumpAll()
         {
             Console.WriteLine("Počinjem bekapovanje mysql servera...");
+            string errorFilePath = Path.Combine(_dumpRootPath, $"error.txt");
             foreach (var clientInfo in _clients)
             {
-                Console.WriteLine($"    Bekapujem server {clientInfo.ServerAndPort} u direktorijum {clientInfo.DirectoryName}");
+                Console.WriteLine($"    Bekapujem server {clientInfo.ServerAndPort} u direktorijum {clientInfo.DirectoryName}...");
                 dumpDatabases(clientInfo);
             }
-            Console.WriteLine($"{Environment.NewLine}Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
+            string areThereErrors = _dumperReportedErrors ? "MySqlDump nije prijavio ni jedan problem." : "MySqlDump je prijavio neke greške!";
+            Console.WriteLine($"{Environment.NewLine}Bekapovanje završeno. {areThereErrors} Lupi ENTER za gašenje prozora.");
         }
 
         private void dumpDatabases(ClientInfo clientInfo)
@@ -129,6 +145,7 @@ namespace com.arnet.MySQLBck
             {
                 string dumpPathForClient = Path.Combine(_dumpRootPath, clientInfo.DirectoryName);
                 Directory.CreateDirectory(dumpPathForClient);
+
                 MySqlConnection clientConnection = clientInfo.getConnection(_userName, _password);
                 if (clientConnection is null)
                 {
@@ -140,13 +157,14 @@ namespace com.arnet.MySQLBck
                 {
                     string now = DateTime.Now.ToString("dd.MM.yyyy_HH.mm");
                     Process dumperForCurrentDatabase = newDumperProcess();
-                    dumperForCurrentDatabase.StartInfo.Arguments = $"-h{clientInfo.ServerIP} -P{clientInfo.Port} -u{_userName} -p{_password} --databases {databaseName}";
+                    dumperForCurrentDatabase.StartInfo.Arguments = $"--column-statistics=0 -h{clientInfo.ServerIP} -P{clientInfo.Port} -u{_userName} -p{_password} --databases {databaseName}";
                     string destinationFilePath = Path.Combine(dumpPathForClient, $"dump-{databaseName}_{now}.sql");
                     var outputStream = new StreamWriter(destinationFilePath);
                     dumperForCurrentDatabase.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
                     Console.WriteLine($"      > mysqldump {dumperForCurrentDatabase.StartInfo.Arguments} > {destinationFilePath}");
                     dumperForCurrentDatabase.Start();
                     dumperForCurrentDatabase.BeginOutputReadLine();
+                    dumperForCurrentDatabase.BeginErrorReadLine();
                     dumperForCurrentDatabase.WaitForExit();
                     outputStream.Dispose();
                 }
@@ -161,5 +179,6 @@ namespace com.arnet.MySQLBck
                 Console.WriteLine(" Ovo mi sve pokaži da vidim o čemu se radi!");
             }
         }
+
     }
 }
