@@ -29,7 +29,7 @@ namespace com.arnet.MySQLBck
                     connection.Open();
                     return connection;
                 }
-                catch (Exception)
+                catch (Exception e)
                 {
                     return null;
                 }

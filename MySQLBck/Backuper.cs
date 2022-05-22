@@ -76,14 +76,17 @@ namespace com.arnet.MySQLBck
             for(int i = 0; i < serverList.Count; i++)
             {
                 var serverAndPort = serverList[i].Split(":");
-                ClientInfo clientInfo = new ClientInfo
+                if (serverAndPort.Length > 1)
                 {
-                    ServerIP = serverAndPort[0],
-                    Port = serverAndPort[1],
-                    DirectoryName = subDirectoryList[i],
-                };
-
-                _clients.Add(clientInfo);
+                    ClientInfo clientInfo = new ClientInfo
+                    {
+                        ServerIP = serverAndPort[0],
+                        Port = serverAndPort[1],
+                        DirectoryName = subDirectoryList[i],
+                    };
+                    _clients.Add(clientInfo);
+                }
+                else Console.WriteLine($"   Preskačem {serverAndPort[0]}, nema porta.");
             }
         }
         private Process newDumperProcess()
@@ -111,12 +114,13 @@ namespace com.arnet.MySQLBck
 
         public void dumpAll()
         {
+            Console.WriteLine("Počinjem bekapovanje mysql servera...");
             foreach (var clientInfo in _clients)
             {
-                Console.WriteLine($"Bekapujem server {clientInfo.ServerAndPort} u direktorijum {clientInfo.DirectoryName}");
+                Console.WriteLine($"    Bekapujem server {clientInfo.ServerAndPort} u direktorijum {clientInfo.DirectoryName}");
                 dumpDatabases(clientInfo);
             }
-            Console.WriteLine("Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
+            Console.WriteLine($"{Environment.NewLine}Bekapovanje završeno. Lupi ENTER za gašenje prozora.");
         }
 
         private void dumpDatabases(ClientInfo clientInfo)
@@ -126,34 +130,35 @@ namespace com.arnet.MySQLBck
                 string dumpPathForClient = Path.Combine(_dumpRootPath, clientInfo.DirectoryName);
                 Directory.CreateDirectory(dumpPathForClient);
                 MySqlConnection clientConnection = clientInfo.getConnection(_userName, _password);
-                List<string> databaseNamesList = getDatabaseNames(clientConnection);
                 if (clientConnection is null)
                 {
-                    Console.WriteLine("Neuspešna konekcija. Ništa od dampovanja za ovaj server.");
+                    Console.WriteLine("    Neuspešna konekcija. Ništa od dampovanja za ovaj server.");
                     return;
                 }
+                List<string> databaseNamesList = getDatabaseNames(clientConnection);
                 foreach (var databaseName in databaseNamesList)
                 {
-                    string now = DateTime.Now.ToString("dd.MM.yyyy HH:mm");
+                    string now = DateTime.Now.ToString("dd.MM.yyyy_HH.mm");
                     Process dumperForCurrentDatabase = newDumperProcess();
                     dumperForCurrentDatabase.StartInfo.Arguments = $"-h{clientInfo.ServerIP} -P{clientInfo.Port} -u{_userName} -p{_password} --databases {databaseName}";
-                    string destinationFilePath = Path.Combine(dumpPathForClient, $"dump-{databaseName} {now}.sql");
+                    string destinationFilePath = Path.Combine(dumpPathForClient, $"dump-{databaseName}_{now}.sql");
                     var outputStream = new StreamWriter(destinationFilePath);
                     dumperForCurrentDatabase.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
-                    Console.WriteLine($"  > mysqldump {dumperForCurrentDatabase.StartInfo.Arguments} > {destinationFilePath}");
+                    Console.WriteLine($"      > mysqldump {dumperForCurrentDatabase.StartInfo.Arguments} > {destinationFilePath}");
                     dumperForCurrentDatabase.Start();
                     dumperForCurrentDatabase.BeginOutputReadLine();
                     dumperForCurrentDatabase.WaitForExit();
                     outputStream.Dispose();
                 }
+                Console.WriteLine();
             }
             catch (Exception e)
             {
-                Console.WriteLine($"Greška. Dampovanje za server {clientInfo.ServerAndPort} puklo uz eksepšn :");
+                Console.WriteLine($"    Greška. Dampovanje za server {clientInfo.ServerAndPort} puklo uz eksepšn :");
                 Console.WriteLine(e.GetType());
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
-                Console.WriteLine("Ovo mi sve pokaži da vidim o čemu se radi!");
+                Console.WriteLine(" Ovo mi sve pokaži da vidim o čemu se radi!");
             }
         }
     }
