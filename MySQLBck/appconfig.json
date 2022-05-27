@@ -1,0 +1,23 @@
+{
+  "BackupingConfig": {
+    "komentar" : "ovde možeš da zadaš i UserName i Password ako ti difolt oper/online ne odgovara",
+    "DumperPath": "c:\\dev\\arnet\\mysql57\\bin\\mysqldump.exe",
+    "DumpPath": "c:\\dev\\arnet\\dump",
+
+    "Servers": [
+      {
+        "IPAddress": "185.102.236.162",
+        "Port": "53306",
+        "Name": "Proteinka",
+        "Databases": "opp332021 opp"
+      },
+      {
+        "IPAddress": "185.102.238.105",
+        "Port": "53306",
+        "Name": "Nemanja",
+        "Databases": "opp"
+      }
+
+    ]
+  }
+}

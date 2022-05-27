@@ -106,7 +106,7 @@ namespace com.arnet.MySQLBck
                 {
                     _dumperReportedErrors = true;
                     if (args.Data.Contains("Warning"))
-                        Console.WriteLine($"      warning : {args.Data}");
+                        Console.WriteLine($"      : {args.Data}");
                     else Console.WriteLine($"      ERROR : {args.Data}");
                 }
             };
