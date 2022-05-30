@@ -73,6 +73,7 @@ namespace com.arnet.MySQLBackuper
                     Process dumperForCurrentDatabase = newDumperProcess();
                     dumperForCurrentDatabase.StartInfo.Arguments = $" -h{clientInfo.IPAddress} -P{clientInfo.Port} -u{_config.UserName} -p{_config.Password} --databases {databaseName}";
                     string destinationFilePath = Path.Combine(dumpPathForClient, $"dump-{databaseName}_{now}.sql");
+                    
                     var outputStream = new StreamWriter(destinationFilePath);
                     dumperForCurrentDatabase.OutputDataReceived += (sender, args) => outputStream.WriteLine(args.Data);
                     Console.WriteLine($"      > mysqldump {dumperForCurrentDatabase.StartInfo.Arguments} > {destinationFilePath}");
@@ -105,6 +106,7 @@ namespace com.arnet.MySQLBackuper
             process.ErrorDataReceived += (sender, args) => {
                 if (args is null || args.Data is null)
                     return;
+
                 if (!args.Data.Contains(COMMON_PASSWORD_WARNING))
                 {
                     _dumperReportedErrors = true;

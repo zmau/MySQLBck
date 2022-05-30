@@ -1,0 +1,9 @@
+{
+  "RestoringConfig": {
+    "RestoringServer": "localhost:3306",
+    "UserName": "root",
+    "Password": "root",
+    "InputFile": "C:\\dev\\arnet\\dump\\Proteinka\\dump-opp332022_25.05.2022_19.28.sql"
+  }
+
+}
